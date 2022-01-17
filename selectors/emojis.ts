@@ -60,6 +60,6 @@ export const getOneClickReactionEmojis = createSelector(
             return [];
         }
 
-        return recentEmojis.map((recentEmoji) => emojiMap.get(recentEmoji)).filter(Boolean).reverse();
+        return recentEmojis.map((recentEmoji) => emojiMap.get(recentEmoji)).filter(Boolean).slice(-3).reverse();
     },
 );
