@@ -11,14 +11,41 @@
 // Group: @emoji @timeout_error
 
 import * as TIMEOUTS from '../../fixtures/timeouts';
+import * as MESSAGES from '../../fixtures/messages';
+
+import {getCustomEmoji} from './helpers';
 
 describe('Recent Emoji', () => {
+    const largeEmojiFile = 'gif-image-file.gif';
+
+    let testTeam;
+    let testUser;
+    let otherUser;
+    let townsquareLink;
+
     before(() => {
-        // # Login as test user and visit town-square
-        cy.apiInitSetup({loginAfter: true}).then(({team}) => {
-            cy.visit(`/${team.name}/channels/town-square`);
-            cy.get('#channelHeaderTitle').should('be.visible').and('contain', 'Town Square');
-            cy.postMessage('hello');
+        cy.apiUpdateConfig({
+            ServiceSettings: {
+                EnableCustomEmoji: true,
+            },
+        });
+    });
+
+    beforeEach(() => {
+        cy.apiAdminLogin();
+
+        cy.apiInitSetup().then(({team, user}) => {
+            testTeam = team;
+            testUser = user;
+            townsquareLink = `/${team.name}/channels/town-square`;
+        });
+
+        cy.apiCreateUser().then(({user: user1}) => {
+            otherUser = user1;
+            cy.apiAddUserToTeam(testTeam.id, otherUser.id);
+        }).then(() => {
+            cy.apiLogin(testUser);
+            cy.visit(townsquareLink);
         });
     });
 
@@ -56,5 +83,74 @@ describe('Recent Emoji', () => {
                 cy.get('.emoji-picker__item').eq(0).find('img').should('have.attr', 'class', second.attr('class'));
             });
         });
+    });
+
+    it.only('MM-T4463 Recently used custom emoji, when is deleted should be removed from recent emoji category and quick reactions', () => {
+        const {customEmoji, customEmojiWithColons} = getCustomEmoji();
+
+        // # Open custom emoji
+        cy.uiOpenCustomEmoji();
+
+        // # Click on add new emoji button on custom emoji page
+        cy.findByText('Add Custom Emoji').should('be.visible').click();
+
+        // # Type emoji name
+        cy.get('#name').type(customEmojiWithColons);
+
+        // # Select emoji image
+        cy.get('input#select-emoji').attachFile(largeEmojiFile).wait(TIMEOUTS.THREE_SEC);
+
+        // # Click on Save
+        cy.uiSave().wait(TIMEOUTS.THREE_SEC);
+
+        // # Go back to home channel
+        cy.findByText('Back to Mattermost').should('exist').and('be.visible').click().wait(TIMEOUTS.FIVE_SEC);
+
+        // # Post a system emoji
+        cy.postMessage('second recent emoji :lemon:');
+
+        // # Post a custom emoji
+        cy.postMessage(`most recent emoji ${customEmojiWithColons}`);
+
+        // # Open emoji picker
+        cy.uiOpenEmojiPicker();
+
+        // * Verify recently used category is present in emoji picker
+        cy.findByText('Recently Used').should('exist').and('be.visible');
+
+        // * Verify most recent one is the custom emoji in emoji picker
+        cy.findAllByTestId('emojiItem').eq(0).find('img').should('have.attr', 'class', 'emoji-category--custom');
+
+        // * Verify second most recent one is the system emoji in emoji picker
+        cy.findAllByTestId('emojiItem').eq(1).find('img').should('have.attr', 'aria-label', 'lemon emoji');
+
+        // # Go to custom emoji page
+        cy.findByText('Custom Emoji').should('be.visible').click();
+
+        // # Search for the custom emoji
+        cy.findByPlaceholderText('Search Custom Emoji').should('be.visible').type(customEmoji).wait(TIMEOUTS.HALF_SEC);
+
+        cy.get('.emoji-list__table').should('be.visible').within(() => {
+            // * Since we are searching exactly for that custom emoji, we should get only one result
+            cy.findAllByText(customEmojiWithColons).should('have.length', 1);
+
+            // # Delete the custom emoji
+            cy.findAllByText('Delete').should('have.length', 1).click();
+        });
+
+        // # Confirm deletion and back to main channel view
+        cy.get('#confirmModalButton').should('be.visible').click();
+        cy.findByText('Back to Mattermost').should('exist').and('be.visible').click().wait(TIMEOUTS.FIVE_SEC);
+
+        cy.reload();
+
+        // # Open emoji picker again
+        cy.uiOpenEmojiPicker();
+
+        // * Verify recently used category is present in emoji picker
+        cy.findByText('Recently Used').should('exist').and('be.visible');
+
+        // * Verify most recent one is the system emoji in emoji picker and not the custom emoji
+        cy.findAllByTestId('emojiItem').eq(0).find('img').should('have.attr', 'aria-label', 'lemon emoji');
     });
 });
